@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuickDraw AI — Draw & Recognize</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Design tokens ─────────────────────────────────────── */
+    :root {
+      --ink:     #0d0d0d;
+      --paper:   #f5f0e8;
+      --cream:   #ede8df;
+      --accent:  #e84545;
+      --gold:    #f5a623;
+      --muted:   #7a7166;
+      --canvas-bg: #ffffff;
+      --border:  #0d0d0d;
+      --shadow:  4px 4px 0 var(--border);
+      --shadow-lg: 6px 6px 0 var(--border);
+      --radius:  0px;
+      --mono:    'Space Mono', monospace;
+      --display: 'Syne', sans-serif;
+    }
+
+    /* ── Reset ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Base ──────────────────────────────────────────────── */
+    body {
+      background-color: var(--paper);
+      background-image:
+        radial-gradient(circle, #ccc 1px, transparent 1px);
+      background-size: 24px 24px;
+      min-height: 100vh;
+      font-family: var(--mono);
+      color: var(--ink);
+      padding: 24px 16px 48px;
+    }
+
+    /* ── Layout ────────────────────────────────────────────── */
+    .page {
+      max-width: 1060px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .logo {
+      font-family: var(--display);
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -2px;
+    }
+    .logo span { color: var(--accent); }
+    .tagline {
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* ── Main grid ──────────────────────────────────────────── */
+    .workspace {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 800px) {
+      .workspace { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card primitive ─────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 2px solid var(--border);
+      box-shadow: var(--shadow-lg);
+    }
+
+    /* ── Canvas card ────────────────────────────────────────── */
+    .canvas-card {
+      padding: 0;
+      overflow: hidden;
+    }
+    .canvas-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 14px 18px;
+      border-bottom: 2px solid var(--border);
+      background: var(--cream);
+    }
+    .tool-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tool-label {
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* color swatches */
+    .swatch-row { display: flex; gap: 6px; }
+    .swatch {
+      width: 22px; height: 22px;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .swatch:hover    { transform: scale(1.15); }
+    .swatch.active   { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* brush size pills */
+    .size-pills { display: flex; gap: 6px; align-items: center; }
+    .size-pill {
+      border: 2px solid var(--border);
+      background: #fff;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.12s, transform 0.1s;
+    }
+    .size-pill:hover   { background: var(--cream); transform: scale(1.1); }
+    .size-pill.active  { background: var(--ink); }
+    .size-pill.active .dot { background: #fff; }
+    .size-pill .dot    { border-radius: 50%; background: var(--ink); }
+    .pill-sm  { width: 28px; height: 28px; }
+    .pill-sm  .dot { width: 4px;  height: 4px; }
+    .pill-md  { width: 32px; height: 32px; }
+    .pill-md  .dot { width: 8px;  height: 8px; }
+    .pill-lg  { width: 36px; height: 36px; }
+    .pill-lg  .dot { width: 14px; height: 14px; }
+    .pill-xl  { width: 40px; height: 40px; }
+    .pill-xl  .dot { width: 20px; height: 20px; }
+
+    /* eraser */
+    .tool-btn {
+      border: 2px solid var(--border);
+      background: #fff;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 4px 10px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      transition: background 0.12s;
+    }
+    .tool-btn:hover  { background: var(--cream); }
+    .tool-btn.active { background: var(--ink); color: #fff; }
+
+    /* separator */
+    .sep { width: 1px; height: 32px; background: var(--border); flex-shrink: 0; }
+
+    /* canvas area */
+    .canvas-wrap {
+      position: relative;
+      background: var(--canvas-bg);
+      cursor: crosshair;
+      overflow: hidden;
+    }
+    #drawCanvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      touch-action: none;
+    }
+
+    /* overlay hint */
+    .canvas-hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      gap: 10px;
+      transition: opacity 0.4s;
+    }
+    .canvas-hint.hidden { opacity: 0; }
+    .hint-icon { font-size: 3.5rem; opacity: 0.18; }
+    .hint-text { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.1em; }
+
+    /* canvas actions */
+    .canvas-actions {
+      padding: 12px 18px;
+      border-top: 2px solid var(--border);
+      background: var(--cream);
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    .btn {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      padding: 8px 18px;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background 0.12s, transform 0.08s;
+    }
+    .btn:active { transform: translate(2px,2px); }
+    .btn-ghost   { background: #fff; }
+    .btn-ghost:hover { background: var(--cream); }
+    .btn-primary { background: var(--ink); color: #fff; box-shadow: var(--shadow); }
+    .btn-primary:hover { background: #333; }
+    .btn-accent  { background: var(--accent); color: #fff; box-shadow: var(--shadow); }
+    .btn-accent:hover  { background: #c43030; }
+
+    /* ── Sidebar ────────────────────────────────────────────── */
+    .sidebar { display: flex; flex-direction: column; gap: 20px; }
+
+    /* predict card */
+    .predict-card { padding: 20px; }
+    .card-title {
+      font-family: var(--display);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* predictions list */
+    .predictions { display: flex; flex-direction: column; gap: 10px; }
+    .pred-item   { position: relative; }
+    .pred-bar-bg {
+      height: 44px;
+      background: var(--cream);
+      border: 2px solid var(--border);
+      overflow: hidden;
+    }
+    .pred-bar-fill {
+      height: 100%;
+      background: var(--ink);
+      width: 0%;
+      transition: width 0.5s cubic-bezier(.4,0,.2,1);
+    }
+    .pred-item.top .pred-bar-fill { background: var(--accent); }
+    .pred-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      pointer-events: none;
+    }
+    .pred-name {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: capitalize;
+      transition: color 0.3s;
+      mix-blend-mode: difference;
+      color: #fff;
+    }
+    .pred-item.top .pred-name { color: #fff; }
+    .pred-pct {
+      font-size: 0.78rem;
+      mix-blend-mode: difference;
+      color: #fff;
+    }
+
+    /* status badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border: 2px solid var(--border);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    .status-badge.thinking .status-dot { background: var(--gold); animation: pulse 1s infinite; }
+    .status-badge.ready    .status-dot { background: #3db843; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+
+    /* classes info card */
+    .classes-card { padding: 20px; }
+    .class-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border: 1.5px solid var(--border);
+      background: var(--cream);
+    }
+
+    /* tip card */
+    .tip-card { padding: 16px 20px; background: var(--ink); color: #fff; }
+    .tip-title { font-size: 0.68rem; color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; }
+    .tip-text  { font-size: 0.72rem; line-height: 1.7; color: #ccc; }
+
+    /* preview thumbnail */
+    .preview-wrap { margin-top: 12px; }
+    #previewCanvas {
+      width: 56px; height: 56px;
+      border: 2px solid var(--border);
+      image-rendering: pixelated;
+    }
+    .preview-label { font-size: 0.62rem; color: var(--muted); margin-top: 4px; }
+
+    /* empty state */
+    .empty-state {
+      text-align: center;
+      padding: 28px 0;
+      color: var(--muted);
+    }
+    .empty-icon  { font-size: 2.5rem; opacity: 0.4; }
+    .empty-text  { font-size: 0.72rem; margin-top: 8px; letter-spacing: 0.05em; }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      margin-top: 32px;
+      text-align: center;
+      font-size: 0.66rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <header>
+    <h1 class="logo">Quick<span>Draw</span> AI</h1>
+    <p class="tagline">Real-time hand-drawing recognition · Quick Draw dataset</p>
+  </header>
+
+  <!-- Workspace -->
+  <div class="workspace">
+
+    <!-- ── Canvas column ─────────────────────────────────── -->
+    <div class="card canvas-card">
+
+      <!-- toolbar -->
+      <div class="canvas-toolbar">
+
+        <!-- colors -->
+        <div class="tool-group">
+          <span class="tool-label">Color</span>
+          <div class="swatch-row" id="swatches">
+            <div class="swatch active" data-color="#000000" style="background:#000;"></div>
+            <div class="swatch" data-color="#2563eb" style="background:#2563eb;"></div>
+            <div class="swatch" data-color="#e84545" style="background:#e84545;"></div>
+            <div class="swatch" data-color="#3db843" style="background:#3db843;"></div>
+            <div class="swatch" data-color="#f5a623" style="background:#f5a623;"></div>
+            <div class="swatch" data-color="#8b5cf6" style="background:#8b5cf6;"></div>
+          </div>
+        </div>
+
+        <div class="sep"></div>
+
+        <!-- brush size -->
+        <div class="tool-group">
+          <span class="tool-label">Size</span>
+          <div class="size-pills" id="sizePills">
+            <div class="size-pill pill-sm" data-size="3">  <div class="dot"></div></div>
+            <div class="size-pill pill-md active" data-size="6"><div class="dot"></div></div>
+            <div class="size-pill pill-lg" data-size="12"> <div class="dot"></div></div>
+            <div class="size-pill pill-xl" data-size="22"> <div class="dot"></div></div>
+          </div>
+        </div>
+
+        <div class="sep"></div>
+
+        <!-- eraser -->
+        <button class="tool-btn" id="eraserBtn" onclick="toggleEraser()">⌫ Eraser</button>
+
+      </div>
+
+      <!-- canvas -->
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="drawCanvas" width="800" height="500"></canvas>
+        <div class="canvas-hint" id="canvasHint">
+          <div class="hint-icon">✏️</div>
+          <div class="hint-text">Start drawing — AI predicts in real-time</div>
+        </div>
+      </div>
+
+      <!-- actions -->
+      <div class="canvas-actions">
+        <button class="btn btn-ghost"  onclick="undoLast()">↩ Undo</button>
+        <button class="btn btn-ghost"  onclick="clearCanvas()">✕ Clear</button>
+        <button class="btn btn-accent" onclick="sendToModel()">⚡ Predict Now</button>
+        <button class="btn btn-primary" onclick="downloadCanvas()">↓ Save</button>
+      </div>
+    </div>
+
+    <!-- ── Sidebar ───────────────────────────────────────── -->
+    <aside class="sidebar">
+
+      <!-- Prediction results -->
+      <div class="card predict-card">
+        <div class="card-title">Predictions</div>
+
+        <div id="statusBadge" class="status-badge">
+          <div class="status-dot"></div>
+          <span id="statusText">Waiting for drawing…</span>
+        </div>
+
+        <div id="predictionsArea">
+          <!-- filled by JS -->
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon">🎨</div>
+            <div class="empty-text">Draw something to get a prediction</div>
+          </div>
+          <div class="predictions" id="predictionsList" style="display:none;"></div>
+        </div>
+
+        <!-- 28×28 preview -->
+        <div class="preview-wrap" id="previewWrap" style="display:none;">
+          <canvas id="previewCanvas" width="28" height="28"></canvas>
+          <div class="preview-label">MODEL INPUT (28 × 28)</div>
+        </div>
+      </div>
+
+      <!-- Class list -->
+      <div class="card classes-card">
+        <div class="card-title">Recognizable Classes</div>
+        <div class="class-chips" id="classChips">
+          <!-- filled by Jinja or JS -->
+          {% for cls in classes %}
+          <div class="chip">{{ cls }}</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Tips -->
+      <div class="card tip-card">
+        <div class="tip-title">💡 Tips for better accuracy</div>
+        <div class="tip-text">
+          • Draw centered and fill most of the canvas<br/>
+          • Use simple, bold strokes — the model was trained on quick sketches<br/>
+          • Try different sizes if confidence is low<br/>
+          • The model auto-predicts every 1.5 s after you stop
+        </div>
+      </div>
+
+    </aside>
+  </div>
+
+  <footer>
+    Trained on Google's Quick Draw dataset · 10 classes · CNN · TensorFlow 2
+  </footer>
+</div>
+
+<!-- ── JavaScript ──────────────────────────────────────────────── -->
+<script>
+  /* ── Canvas setup ─────────────────────────────────────── */
+  const canvas  = document.getElementById('drawCanvas');
+  const ctx     = canvas.getContext('2d');
+  const hint    = document.getElementById('canvasHint');
+  const preview = document.getElementById('previewCanvas');
+  const pctx    = preview.getContext('2d');
+
+  let isDrawing = false;
+  let lastX = 0, lastY = 0;
+  let brushColor = '#000000';
+  let brushSize  = 6;
+  let isEraser   = false;
+  let hasDrawn   = false;
+
+  // undo stack (store snapshots)
+  const undoStack = [];
+  const MAX_UNDO  = 20;
+  function saveSnapshot() {
+    if (undoStack.length >= MAX_UNDO) undoStack.shift();
+    undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  }
+
+  // ── toolbar ──────────────────────────────────────────────
+  document.querySelectorAll('.swatch').forEach(s => {
+    s.addEventListener('click', () => {
+      document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
+      s.classList.add('active');
+      brushColor = s.dataset.color;
+      isEraser   = false;
+      document.getElementById('eraserBtn').classList.remove('active');
+    });
+  });
+
+  document.querySelectorAll('.size-pill').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.size-pill').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+      brushSize = parseInt(p.dataset.size);
+    });
+  });
+
+  function toggleEraser() {
+    isEraser = !isEraser;
+    document.getElementById('eraserBtn').classList.toggle('active', isEraser);
+  }
+
+  // ── drawing ───────────────────────────────────────────────
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    if (e.touches) {
+      return {
+        x: (e.touches[0].clientX - rect.left) * scaleX,
+        y: (e.touches[0].clientY - rect.top)  * scaleY
+      };
+    }
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top)  * scaleY
+    };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    saveSnapshot();
+    isDrawing = true;
+    const {x,y} = getPos(e);
+    lastX = x; lastY = y;
+    // draw a dot on click
+    ctx.beginPath();
+    ctx.arc(x, y, (isEraser ? brushSize*2 : brushSize) / 2, 0, Math.PI*2);
+    ctx.fillStyle = isEraser ? '#fff' : brushColor;
+    ctx.fill();
+  }
+
+  function draw(e) {
+    if (!isDrawing) return;
+    e.preventDefault();
+    const {x,y} = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = isEraser ? '#ffffff' : brushColor;
+    ctx.lineWidth   = isEraser ? brushSize * 3 : brushSize;
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.stroke();
+    lastX = x; lastY = y;
+
+    if (!hasDrawn) {
+      hasDrawn = true;
+      hint.classList.add('hidden');
+    }
+    schedulePredict();
+  }
+
+  function stopDraw() { isDrawing = false; }
+
+  canvas.addEventListener('mousedown',  startDraw);
+  canvas.addEventListener('mousemove',  draw);
+  canvas.addEventListener('mouseup',    stopDraw);
+  canvas.addEventListener('mouseleave', stopDraw);
+  canvas.addEventListener('touchstart', startDraw, {passive:false});
+  canvas.addEventListener('touchmove',  draw,      {passive:false});
+  canvas.addEventListener('touchend',   stopDraw);
+
+  // ── actions ───────────────────────────────────────────────
+  function undoLast() {
+    if (undoStack.length === 0) return;
+    ctx.putImageData(undoStack.pop(), 0, 0);
+    schedulePredict();
+  }
+
+  function clearCanvas() {
+    saveSnapshot();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasDrawn = false;
+    hint.classList.remove('hidden');
+    resetPredictions();
+  }
+
+  function downloadCanvas() {
+    const link = document.createElement('a');
+    link.download = 'quickdraw-sketch.png';
+    link.href = canvas.toDataURL();
+    link.click();
+  }
+
+  // ── auto-predict debounce ─────────────────────────────────
+  let predictTimer = null;
+  function schedulePredict() {
+    clearTimeout(predictTimer);
+    predictTimer = setTimeout(sendToModel, 1500);
+  }
+
+  // ── prediction ────────────────────────────────────────────
+  async function sendToModel() {
+    if (!hasDrawn) return;
+    clearTimeout(predictTimer);
+
+    setStatus('thinking', 'Analysing…');
+
+    // get data-url
+    const dataUrl = canvas.toDataURL('image/png');
+
+    // show 28×28 preview
+    updatePreview(dataUrl);
+
+    try {
+      const res  = await fetch('/predict', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({image: dataUrl})
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setStatus('error', 'Error — see console');
+        console.error(data.error);
+        return;
+      }
+      renderPredictions(data.predictions);
+      setStatus('ready', `Top: ${data.predictions[0].label} (${data.predictions[0].confidence}%)`);
+    } catch (err) {
+      setStatus('error', 'Server unreachable');
+      console.error(err);
+    }
+  }
+
+  function renderPredictions(preds) {
+    document.getElementById('emptyState').style.display  = 'none';
+    const list = document.getElementById('predictionsList');
+    list.style.display = 'flex';
+    list.innerHTML = '';
+
+    document.getElementById('previewWrap').style.display = 'block';
+
+    preds.forEach((p, i) => {
+      const item = document.createElement('div');
+      item.className = 'pred-item' + (i === 0 ? ' top' : '');
+
+      item.innerHTML = `
+        <div class="pred-bar-bg">
+          <div class="pred-bar-fill" style="width:0%"></div>
+        </div>
+        <div class="pred-label">
+          <span class="pred-name">${p.label}</span>
+          <span class="pred-pct">${p.confidence}%</span>
+        </div>`;
+      list.appendChild(item);
+
+      // animate bar
+      requestAnimationFrame(() => {
+        item.querySelector('.pred-bar-fill').style.width = p.confidence + '%';
+      });
+    });
+  }
+
+  function resetPredictions() {
+    document.getElementById('emptyState').style.display  = '';
+    document.getElementById('predictionsList').style.display = 'none';
+    document.getElementById('previewWrap').style.display = 'none';
+    setStatus('idle', 'Waiting for drawing…');
+  }
+
+  function setStatus(state, text) {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge ' + state;
+    document.getElementById('statusText').textContent = text;
+  }
+
+  function updatePreview(dataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      // draw inverted grayscale 28×28 (same as server preprocessing)
+      pctx.clearRect(0, 0, 28, 28);
+      pctx.fillStyle = '#000';
+      pctx.fillRect(0, 0, 28, 28);
+      pctx.drawImage(img, 0, 0, 28, 28);
+      // invert
+      const id = pctx.getImageData(0, 0, 28, 28);
+      for (let i = 0; i < id.data.length; i += 4) {
+        id.data[i]   = 255 - id.data[i];
+        id.data[i+1] = 255 - id.data[i+1];
+        id.data[i+2] = 255 - id.data[i+2];
+      }
+      pctx.putImageData(id, 0, 0);
+    };
+    img.src = dataUrl;
+  }
+</script>
+</body>
+</html>
